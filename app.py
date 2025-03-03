@@ -3,9 +3,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from sklearn.ensemble import RandomForestRegressor
-from dotenv import load_dotenv
 
-load_dotenv()
 
 st.set_page_config(page_title="AI-Powered Fitness Tracker", page_icon="💪", layout="centered")
 st.markdown('<meta name="viewport" content="width=device-width, initial-scale=1.0">', unsafe_allow_html=True)

@@ -1,7 +1,6 @@
 import os
 import streamlit as st
 import pandas as pd
-import mysql.connector
 from datetime import datetime
 from sklearn.ensemble import RandomForestRegressor
 from dotenv import load_dotenv
@@ -32,31 +31,72 @@ st.markdown(
 st.title("🌟 AI-Powered Fitness Tracker")
 st.subheader("Track your daily activity, predict your calorie burn, and compare your performance with others.")
 
-def get_db_connection():
-    return mysql.connector.connect(
-        host=os.getenv("MYSQLHOST"),
-        user=os.getenv("MYSQLUSER"),
-        password=os.getenv("MYSQLPASSWORD"),
-        database=os.getenv("MYSQLDATABASE")
-    )
+CSV_FILE = "fitness_data.csv"
+EXPECTED_COLS = ["username", "date", "calories"]
 
-def initialize_db():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255) UNIQUE NOT NULL)")
-    cursor.execute("CREATE TABLE IF NOT EXISTS calories (id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255) NOT NULL, date DATE NOT NULL, calories FLOAT NOT NULL, UNIQUE(username, date), FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE)")
-    conn.commit()
-    conn.close()
+def load_data():
+    if os.path.exists(CSV_FILE):
+        try:
+            df = pd.read_csv(CSV_FILE)
+            if not set(EXPECTED_COLS).issubset(df.columns):
+                df = pd.DataFrame(columns=EXPECTED_COLS)
+                df.to_csv(CSV_FILE, index=False)
+        except Exception:
+            df = pd.DataFrame(columns=EXPECTED_COLS)
+            df.to_csv(CSV_FILE, index=False)
+    else:
+        df = pd.DataFrame(columns=EXPECTED_COLS)
+        df.to_csv(CSV_FILE, index=False)
+    return df
 
-initialize_db()
+def save_data(df):
+    df.to_csv(CSV_FILE, index=False)
+
+def register_user(username):
+    df = load_data()
+    if username in df["username"].unique():
+        return "Username already exists!"
+    else:
+        new_row = {"username": username, "date": "registered", "calories": 0}
+        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+        save_data(df)
+        return "Registration successful!"
+
+def user_exists(username):
+    df = load_data()
+    return username in df["username"].unique()
+
+def update_calories(username, pre_calories, update_option="Replace"):
+    pre_calories = float(pre_calories)
+    today = datetime.today().strftime('%Y-%m-%d')
+    df = load_data()
+    mask = (df["username"] == username) & (df["date"] == today)
+    if mask.any():
+        current_calories = float(df.loc[mask, "calories"].values[0])
+        if update_option == "Replace":
+            new_calories = pre_calories
+        else:
+            new_calories = current_calories + pre_calories
+        df.loc[mask, "calories"] = new_calories
+    else:
+        new_calories = pre_calories
+        new_row = {"username": username, "date": today, "calories": new_calories}
+        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+    save_data(df)
+    return new_calories
+
+def check_calories_exist(username):
+    today = datetime.today().strftime('%Y-%m-%d')
+    df = load_data()
+    return ((df["username"] == username) & (df["date"] == today)).any()
 
 def get_daily_report(username):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT date, calories FROM calories WHERE username = %s ORDER BY date ASC", (username,))
-    rows = cursor.fetchall()
-    conn.close()
-    return pd.DataFrame(rows, columns=["Date", "Calories"]) if rows else None
+    df = load_data()
+    report = df[(df["username"] == username) & (df["date"] != "registered")]
+    if not report.empty:
+        return report
+    else:
+        return None
 
 DATASET_FILE = "activity_data_heartrate.csv"
 
@@ -74,56 +114,6 @@ def train_model():
     return model
 
 model = train_model()
-
-def register_user(username):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("INSERT INTO users (username) VALUES (%s)", (username,))
-        conn.commit()
-        return "Registration successful!"
-    except mysql.connector.IntegrityError:
-        return "Username already exists!"
-    finally:
-        conn.close()
-
-def user_exists(username):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM users WHERE username = %s", (username,))
-    result = cursor.fetchone()[0]
-    conn.close()
-    return result > 0
-
-def update_calories(username, pre_calories, update_option="Replace"):
-    pre_calories = float(pre_calories)
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    today = datetime.today().strftime('%Y-%m-%d')
-    cursor.execute("SELECT calories FROM calories WHERE username = %s AND date = %s", (username, today))
-    result = cursor.fetchone()
-    if result:
-        current_calories = result[0]
-        if update_option == "Replace":
-            new_calories = pre_calories
-        else:
-            new_calories = current_calories + pre_calories
-        cursor.execute("UPDATE calories SET calories = %s WHERE username = %s AND date = %s", (new_calories, username, today))
-    else:
-        new_calories = pre_calories
-        cursor.execute("INSERT INTO calories (username, date, calories) VALUES (%s, %s, %s)", (username, today, new_calories))
-    conn.commit()
-    conn.close()
-    return new_calories
-
-def check_calories_exist(username):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    today = datetime.today().strftime('%Y-%m-%d')
-    cursor.execute("SELECT calories FROM calories WHERE username = %s AND date = %s", (username, today))
-    result = cursor.fetchone()
-    conn.close()
-    return result is not None
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -228,14 +218,12 @@ else:
             st.info("No data available yet.")
     elif menu == "🏆 Top Users":
         st.subheader("Top Users")
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        df = load_data()
         today = datetime.today().strftime('%Y-%m-%d')
-        cursor.execute("SELECT u.username, COALESCE(c.calories, 0) AS calories FROM users u LEFT JOIN calories c ON u.username = c.username AND c.date = %s ORDER BY calories DESC LIMIT 50", (today,))
-        top_users = cursor.fetchall()
-        conn.close()
-        if top_users:
+        top_users_df = df[df["date"] == today]
+        top_users = top_users_df.groupby("username", as_index=False)["calories"].sum().sort_values("calories", ascending=False).head(50)
+        if not top_users.empty:
             st.info(f"Top 50 users on {today}")
-            st.dataframe(pd.DataFrame(top_users, columns=["Username", "Calories"]))
+            st.dataframe(top_users)
         else:
             st.info("No data available for today.")

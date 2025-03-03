@@ -1,16 +1,132 @@
-import os
 import streamlit as st
 import pandas as pd
+import os
+import re
 from datetime import datetime
 from sklearn.ensemble import RandomForestRegressor
+
+DATA_FILE = "fitness_data.csv"
+DATASET_FILE = "activity_data_heartrate.csv"
+
+# Username validation: must contain at least one alphanumeric character.
+def is_valid_username(username):
+    if not username:
+        return False
+    username = username.strip()
+    return bool(re.search(r"[A-Za-z0-9]", username))
+
+# Session state initialization.
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.username = ""
+if "page" not in st.session_state:
+    st.session_state.page = "Login"
+if "new_calories" not in st.session_state:
+    st.session_state.new_calories = 0.0
+if "calories_updated" not in st.session_state:
+    st.session_state.calories_updated = False
+if "show_update_options" not in st.session_state:
+    st.session_state.show_update_options = False
+if "update_message" not in st.session_state:
+    st.session_state.update_message = ""
+if "total_steps" not in st.session_state:
+    st.session_state.total_steps = 0
+if "total_distance" not in st.session_state:
+    st.session_state.total_distance = 0.0
+if "total_active_minutes" not in st.session_state:
+    st.session_state.total_active_minutes = 0
+if "heart_rate" not in st.session_state:
+    st.session_state.heart_rate = 40
+
+# Functions for ML model using the activity dataset for calorie prediction.
+def load_dataset():
+    try:
+        df = pd.read_csv(DATASET_FILE)
+        df.rename(columns={"HeartRate": "Heart_rate"}, inplace=True)
+    except Exception as e:
+        st.error(f"Error loading dataset: {e}")
+        df = pd.DataFrame(columns=["TotalSteps", "TotalDistance", "TotalActiveMinutes", "Heart_rate", "Calories"])
+    return df
+
+def train_model():
+    df = load_dataset()
+    X = df[["TotalSteps", "TotalDistance", "TotalActiveMinutes", "Heart_rate"]]
+    y = df["Calories"]
+    model = RandomForestRegressor(n_estimators=100, random_state=42)
+    try:
+        model.fit(X, y)
+    except Exception as e:
+        st.error(f"Error training model: {e}")
+    return model
+
+model = train_model()
+
+# For comparing fitness stats, we load the activity dataset.
+def load_fitness():
+    return load_dataset()
+
+# Functions for CSV-based user & daily data handling.
+def load_data():
+    if not os.path.exists(DATA_FILE) or os.stat(DATA_FILE).st_size == 0:
+        return pd.DataFrame(columns=["Username"])
+    df = pd.read_csv(DATA_FILE, dtype={"Username": str})
+    df["Username"] = df["Username"].fillna("").astype(str)
+    if df["Username"].str.strip().eq("").all():
+        return pd.DataFrame(columns=["Username"])
+    return df
+
+def save_data(df):
+    df.to_csv(DATA_FILE, index=False)
+
+def register_user(username):
+    if not is_valid_username(username):
+        return "Enter a valid username!"
+    df = load_data()
+    if username.strip() in df["Username"].values:
+        return "Username already exists!"
+    new_user = pd.DataFrame([[username.strip()]], columns=["Username"])
+    df = pd.concat([df, new_user], ignore_index=True)
+    save_data(df)
+    return "Registration successful!"
+
+def update_calories(username, calories, update_option="Replace"):
+    df = load_data()
+    today = datetime.today().strftime('%Y-%m-%d')
+    if today not in df.columns:
+        df[today] = 0
+    if username in df["Username"].values:
+        current_value = df.loc[df["Username"] == username, today].iloc[0]
+        try:
+            current_value = float(current_value)
+        except:
+            current_value = 0.0
+        updated_value = calories if update_option == "Replace" or pd.isnull(current_value) or current_value == 0 else current_value + calories
+        df.loc[df["Username"] == username, today] = updated_value
+    else:
+        new_row = pd.DataFrame({"Username": [username], today: [calories]})
+        df = pd.concat([df, new_row], ignore_index=True)
+        updated_value = calories
+    save_data(df)
+    return updated_value
+
+def get_top_users():
+    df = load_data()
+    today = datetime.today().strftime('%Y-%m-%d')
+    if today in df.columns:
+        top_users = df[["Username", today]].sort_values(by=today, ascending=False).head(50)
+        top_users = top_users.reset_index(drop=True)
+        return top_users
+    return None
 
 st.set_page_config(
     page_title="AI-Powered Fitness Tracker",
     page_icon="💪",
     layout="centered",
-    initial_sidebar_state="collapsed"
+    
 )
+st.title("🌟 AI-Powered Fitness Tracker")
 st.markdown('<meta name="viewport" content="width=device-width, initial-scale=1.0">', unsafe_allow_html=True)
+st.subheader("Track your daily activity, predict your calorie burn, and compare your performance with others.")
 st.markdown(
     """
     <style>
@@ -30,123 +146,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("🌟 AI-Powered Fitness Tracker")
-st.subheader("Track your daily activity, predict your calorie burn, and compare your performance with others.")
-
-USERS_FILE = "users.csv"
-USERS_COLS = ["username"]
-FITNESS_FILE = "fitness_data.csv"
-FITNESS_COLS = ["username", "date", "calories"]
-
-def load_users():
-    if os.path.exists(USERS_FILE):
-        try:
-            df = pd.read_csv(USERS_FILE)
-            if not set(USERS_COLS).issubset(df.columns):
-                df = pd.DataFrame(columns=USERS_COLS)
-                df.to_csv(USERS_FILE, index=False)
-        except Exception:
-            df = pd.DataFrame(columns=USERS_COLS)
-            df.to_csv(USERS_FILE, index=False)
-    else:
-        df = pd.DataFrame(columns=USERS_COLS)
-        df.to_csv(USERS_FILE, index=False)
-    return df
-
-def save_users(df):
-    df.to_csv(USERS_FILE, index=False)
-
-def register_user(username):
-    df = load_users()
-    if username in df["username"].unique():
-        return "Username already exists!"
-    else:
-        new_row = {"username": username}
-        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-        save_users(df)
-        return "Registration successful!"
-
-def user_exists(username):
-    df = load_users()
-    return username in df["username"].unique()
-
-def load_fitness():
-    if os.path.exists(FITNESS_FILE):
-        try:
-            df = pd.read_csv(FITNESS_FILE)
-            if not set(FITNESS_COLS).issubset(df.columns):
-                df = pd.DataFrame(columns=FITNESS_COLS)
-                df.to_csv(FITNESS_FILE, index=False)
-        except Exception:
-            df = pd.DataFrame(columns=FITNESS_COLS)
-            df.to_csv(FITNESS_FILE, index=False)
-    else:
-        df = pd.DataFrame(columns=FITNESS_COLS)
-        df.to_csv(FITNESS_FILE, index=False)
-    return df
-
-def save_fitness(df):
-    df.to_csv(FITNESS_FILE, index=False)
-
-def update_calories(username, pre_calories, update_option="Replace"):
-    pre_calories = float(pre_calories)
-    today = datetime.today().strftime('%Y-%m-%d')
-    df = load_fitness()
-    mask = (df["username"] == username) & (df["date"] == today)
-    if mask.any():
-        current_calories = float(df.loc[mask, "calories"].values[0])
-        new_calories = pre_calories if update_option == "Replace" else current_calories + pre_calories
-        df.loc[mask, "calories"] = new_calories
-    else:
-        new_calories = pre_calories
-        new_row = {"username": username, "date": today, "calories": new_calories}
-        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-    save_fitness(df)
-    return new_calories
-
-def check_calories_exist(username):
-    today = datetime.today().strftime('%Y-%m-%d')
-    df = load_fitness()
-    return ((df["username"] == username) & (df["date"] == today)).any()
-
-def get_daily_report(username):
-    df = load_fitness()
-    report = df[df["username"] == username]
-    if not report.empty:
-        return report
-    else:
-        return None
-
-DATASET_FILE = "activity_data_heartrate.csv"
-
-def load_dataset():
-    df = pd.read_csv(DATASET_FILE)
-    df.rename(columns={"HeartRate": "Heart_rate"}, inplace=True)
-    return df
-
-def train_model():
-    df = load_dataset()
-    X = df[["TotalSteps", "TotalDistance", "TotalActiveMinutes", "Heart_rate"]]
-    y = df["Calories"]
-    model = RandomForestRegressor(n_estimators=100, random_state=42)
-    model.fit(X, y)
-    return model
-
-model = train_model()
-
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "page" not in st.session_state:
-    st.session_state.page = "Login"
-if "show_update_options" not in st.session_state:
-    st.session_state.show_update_options = False
-if "calories_updated" not in st.session_state:
-    st.session_state.calories_updated = False
-if "new_calories" not in st.session_state:
-    st.session_state.new_calories = None
-if "update_message" not in st.session_state:
-    st.session_state.update_message = ""
-
+# UI: Login/Registration and Navigation.
 if not st.session_state.logged_in:
     if st.session_state.page == "Login":
         st.subheader("🔐 Login")
@@ -155,12 +155,16 @@ if not st.session_state.logged_in:
             login_button = st.form_submit_button("Login")
             switch_to_register = st.form_submit_button("Don't have an account? Register")
         if login_button:
-            if user_exists(username):
-                st.session_state.logged_in = True
-                st.session_state.username = username
-                st.rerun()
+            if not is_valid_username(username):
+                st.error("Enter a valid username!")
             else:
-                st.error("❌ User not found! Please register.")
+                data = load_data()
+                if username.strip() in data["Username"].values:
+                    st.session_state.logged_in = True
+                    st.session_state.username = username.strip()
+                    st.rerun()
+                else:
+                    st.error("❌ User not found! Please register.")
         if switch_to_register:
             st.session_state.page = "Register"
             st.rerun()
@@ -196,7 +200,9 @@ else:
                                       columns=["TotalSteps", "TotalDistance", "TotalActiveMinutes", "Heart_rate"])
             predicted = float(model.predict(input_data)[0])
             st.success(f"You have burned {predicted:.2f} predicted calories!")
-            if check_calories_exist(st.session_state.username):
+            data = load_data()
+            today = datetime.today().strftime('%Y-%m-%d')
+            if today in data.columns and st.session_state.username in data["Username"].values:
                 st.session_state.new_calories = predicted
                 st.session_state.show_update_options = True
                 st.session_state.calories_updated = False
@@ -204,6 +210,8 @@ else:
             else:
                 new_cal = update_calories(st.session_state.username, predicted, update_option="Replace")
                 st.success(f"Recorded calories: {new_cal:.2f} for today!")
+            
+            # Display fitness statistics compared to the activity dataset.
             df_activity = load_fitness()
             if len(df_activity) > 0:
                 st.subheader("Your Fitness Stats Compared to Others")
@@ -215,35 +223,47 @@ else:
                 st.write(f"Your total distance is higher than {distance_percent}% of other people.")
                 active_minutes_percent = round((sum(df_activity["TotalActiveMinutes"] < st.session_state.total_active_minutes) / len(df_activity)) * 100, 2)
                 st.write(f"Your total active minutes are higher than {active_minutes_percent}% of other people.")
-            else:
-                st.info("Fitness activity data is not available at the moment.")
+        
         if st.session_state.get("show_update_options", False) and not st.session_state.get("calories_updated", False):
             with st.form(key="update_form"):
                 st.write("Update Options:")
-                update_option = st.radio("How would you like to update your calories for today?", ["Replace", "Add"], key="update_option")
-                submitted = st.form_submit_button("Confirm Update")
-                if submitted:
-                    new_total = update_calories(st.session_state.username, st.session_state.new_calories, update_option=update_option)
-                    st.session_state.update_message = f"Calories updated successfully using option: {update_option}. New total: {new_total:.2f}"
+                update_option = st.radio(
+                    "How would you like to update your calories for today?",
+                    options=["Replace", "Add"],
+                    key="update_option"
+                )
+                col1, col2 = st.columns(2)
+                submit_button = col1.form_submit_button("Confirm Update")
+                cancel_button = col2.form_submit_button("Cancel")
+                if submit_button:
+                    new_total = update_calories(
+                        st.session_state.username,
+                        st.session_state.new_calories,
+                        update_option=update_option
+                    )
+                    st.session_state.update_message = (
+                        f"Calories updated successfully using option: {update_option}. New total: {new_total:.2f}"
+                    )
                     st.session_state.show_update_options = False
                     st.session_state.calories_updated = True
-            if st.session_state.get("update_message"):
-                st.success(st.session_state.update_message)
+                elif cancel_button:
+                    st.session_state.show_update_options = False
+        if st.session_state.get("update_message", ""):
+            st.success(st.session_state.update_message)
     elif menu == "📊 Daily Report":
         st.subheader("Your Daily Report")
-        report = get_daily_report(st.session_state.username)
-        if report is not None:
-            st.dataframe(report)
+        data = load_data()
+        user_data = data[data["Username"] == st.session_state.username]
+        if not user_data.empty:
+            user_long = user_data.drop(columns=["Username"]).melt(var_name="Date", value_name="Calories")
+            user_long = user_long[user_long["Date"] != "registered"].sort_values("Date")
+            st.dataframe(user_long)
         else:
             st.info("No data available yet.")
     elif menu == "🏆 Top Users":
         st.subheader("Top Users")
-        df = load_fitness()
-        today = datetime.today().strftime('%Y-%m-%d')
-        top_users_df = df[df["date"] == today]
-        top_users = top_users_df.groupby("username", as_index=False)["calories"].sum().sort_values("calories", ascending=False).head(50)
-        if not top_users.empty:
-            st.info(f"Top 50 users on {today}")
+        top_users = get_top_users()
+        if top_users is not None:
             st.dataframe(top_users)
         else:
             st.info("No data available for today.")

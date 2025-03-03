@@ -1,8 +1,12 @@
+import os
 import streamlit as st
 import pandas as pd
 import mysql.connector
 from datetime import datetime
 from sklearn.ensemble import RandomForestRegressor
+from dotenv import load_dotenv
+
+load_dotenv()
 
 st.set_page_config(page_title="AI-Powered Fitness Tracker", page_icon="💪", layout="centered")
 st.markdown('<meta name="viewport" content="width=device-width, initial-scale=1.0">', unsafe_allow_html=True)
@@ -24,11 +28,17 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
 st.title("🌟 AI-Powered Fitness Tracker")
 st.subheader("Track your daily activity, predict your calorie burn, and compare your performance with others.")
 
 def get_db_connection():
-    return mysql.connector.connect(host="localhost", user="root", password="lingesh", database="fitness_tracker")
+    return mysql.connector.connect(
+        host=os.getenv("MYSQLHOST"),
+        user=os.getenv("MYSQLUSER"),
+        password=os.getenv("MYSQLPASSWORD"),
+        database=os.getenv("MYSQLDATABASE")
+    )
 
 def initialize_db():
     conn = get_db_connection()

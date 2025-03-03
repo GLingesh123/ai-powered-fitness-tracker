@@ -11,7 +11,7 @@ st.set_page_config(
     page_title="AI-Powered Fitness Tracker",
     page_icon="💪",
     layout="centered",
-    initial_sidebar_state="collapsed"  # The sidebar is initially collapsed
+    initial_sidebar_state="collapsed"
 )
 st.markdown('<meta name="viewport" content="width=device-width, initial-scale=1.0">', unsafe_allow_html=True)
 st.markdown(
@@ -36,45 +36,65 @@ st.markdown(
 st.title("🌟 AI-Powered Fitness Tracker")
 st.subheader("Track your daily activity, predict your calorie burn, and compare your performance with others.")
 
-CSV_FILE = "fitness_data.csv"
-EXPECTED_COLS = ["username", "date", "calories"]
+USERS_FILE = "users.csv"
+USERS_COLS = ["username"]
+FITNESS_FILE = "fitness_data.csv"
+FITNESS_COLS = ["username", "date", "calories"]
 
-def load_data():
-    if os.path.exists(CSV_FILE):
+def load_users():
+    if os.path.exists(USERS_FILE):
         try:
-            df = pd.read_csv(CSV_FILE)
-            if not set(EXPECTED_COLS).issubset(df.columns):
-                df = pd.DataFrame(columns=EXPECTED_COLS)
-                df.to_csv(CSV_FILE, index=False)
+            df = pd.read_csv(USERS_FILE)
+            if not set(USERS_COLS).issubset(df.columns):
+                df = pd.DataFrame(columns=USERS_COLS)
+                df.to_csv(USERS_FILE, index=False)
         except Exception:
-            df = pd.DataFrame(columns=EXPECTED_COLS)
-            df.to_csv(CSV_FILE, index=False)
+            df = pd.DataFrame(columns=USERS_COLS)
+            df.to_csv(USERS_FILE, index=False)
     else:
-        df = pd.DataFrame(columns=EXPECTED_COLS)
-        df.to_csv(CSV_FILE, index=False)
+        df = pd.DataFrame(columns=USERS_COLS)
+        df.to_csv(USERS_FILE, index=False)
     return df
 
-def save_data(df):
-    df.to_csv(CSV_FILE, index=False)
+def save_users(df):
+    df.to_csv(USERS_FILE, index=False)
 
 def register_user(username):
-    df = load_data()
+    df = load_users()
     if username in df["username"].unique():
         return "Username already exists!"
     else:
-        new_row = {"username": username, "date": "registered", "calories": 0}
+        new_row = {"username": username}
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-        save_data(df)
+        save_users(df)
         return "Registration successful!"
 
 def user_exists(username):
-    df = load_data()
+    df = load_users()
     return username in df["username"].unique()
+
+def load_fitness():
+    if os.path.exists(FITNESS_FILE):
+        try:
+            df = pd.read_csv(FITNESS_FILE)
+            if not set(FITNESS_COLS).issubset(df.columns):
+                df = pd.DataFrame(columns=FITNESS_COLS)
+                df.to_csv(FITNESS_FILE, index=False)
+        except Exception:
+            df = pd.DataFrame(columns=FITNESS_COLS)
+            df.to_csv(FITNESS_FILE, index=False)
+    else:
+        df = pd.DataFrame(columns=FITNESS_COLS)
+        df.to_csv(FITNESS_FILE, index=False)
+    return df
+
+def save_fitness(df):
+    df.to_csv(FITNESS_FILE, index=False)
 
 def update_calories(username, pre_calories, update_option="Replace"):
     pre_calories = float(pre_calories)
     today = datetime.today().strftime('%Y-%m-%d')
-    df = load_data()
+    df = load_fitness()
     mask = (df["username"] == username) & (df["date"] == today)
     if mask.any():
         current_calories = float(df.loc[mask, "calories"].values[0])
@@ -84,17 +104,17 @@ def update_calories(username, pre_calories, update_option="Replace"):
         new_calories = pre_calories
         new_row = {"username": username, "date": today, "calories": new_calories}
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-    save_data(df)
+    save_fitness(df)
     return new_calories
 
 def check_calories_exist(username):
     today = datetime.today().strftime('%Y-%m-%d')
-    df = load_data()
+    df = load_fitness()
     return ((df["username"] == username) & (df["date"] == today)).any()
 
 def get_daily_report(username):
-    df = load_data()
-    report = df[(df["username"] == username) & (df["date"] != "registered")]
+    df = load_fitness()
+    report = df[df["username"] == username]
     if not report.empty:
         return report
     else:
@@ -187,7 +207,7 @@ else:
             else:
                 new_cal = update_calories(st.session_state.username, predicted, update_option="Replace")
                 st.success(f"Recorded calories: {new_cal:.2f} for today!")
-            df_activity = load_dataset()
+            df_activity = load_fitness()
             if len(df_activity) > 0:
                 st.subheader("Your Fitness Stats Compared to Others")
                 heart_rate_percent = round((sum(df_activity["Heart_rate"] < st.session_state.heart_rate) / len(df_activity)) * 100, 2)
@@ -221,7 +241,7 @@ else:
             st.info("No data available yet.")
     elif menu == "🏆 Top Users":
         st.subheader("Top Users")
-        df = load_data()
+        df = load_fitness()
         today = datetime.today().strftime('%Y-%m-%d')
         top_users_df = df[df["date"] == today]
         top_users = top_users_df.groupby("username", as_index=False)["calories"].sum().sort_values("calories", ascending=False).head(50)

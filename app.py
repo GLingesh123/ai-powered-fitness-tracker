@@ -3,9 +3,16 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from sklearn.ensemble import RandomForestRegressor
+from dotenv import load_dotenv
 
+load_dotenv()
 
-st.set_page_config(page_title="AI-Powered Fitness Tracker", page_icon="💪", layout="centered")
+st.set_page_config(
+    page_title="AI-Powered Fitness Tracker",
+    page_icon="💪",
+    layout="centered",
+    initial_sidebar_state="collapsed"  # The sidebar is initially collapsed
+)
 st.markdown('<meta name="viewport" content="width=device-width, initial-scale=1.0">', unsafe_allow_html=True)
 st.markdown(
     """
@@ -71,10 +78,7 @@ def update_calories(username, pre_calories, update_option="Replace"):
     mask = (df["username"] == username) & (df["date"] == today)
     if mask.any():
         current_calories = float(df.loc[mask, "calories"].values[0])
-        if update_option == "Replace":
-            new_calories = pre_calories
-        else:
-            new_calories = current_calories + pre_calories
+        new_calories = pre_calories if update_option == "Replace" else current_calories + pre_calories
         df.loc[mask, "calories"] = new_calories
     else:
         new_calories = pre_calories
@@ -171,7 +175,8 @@ else:
         st.session_state.total_active_minutes = active_minutes
         st.session_state.heart_rate = heart_rate
         if st.button("Predict Calories"):
-            input_data = pd.DataFrame([[steps, distance, active_minutes, heart_rate]], columns=["TotalSteps", "TotalDistance", "TotalActiveMinutes", "Heart_rate"])
+            input_data = pd.DataFrame([[steps, distance, active_minutes, heart_rate]],
+                                      columns=["TotalSteps", "TotalDistance", "TotalActiveMinutes", "Heart_rate"])
             predicted = float(model.predict(input_data)[0])
             st.success(f"You have burned {predicted:.2f} predicted calories!")
             if check_calories_exist(st.session_state.username):

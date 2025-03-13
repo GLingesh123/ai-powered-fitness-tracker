@@ -171,7 +171,7 @@ if not st.session_state.logged_in:
             switch_to_register = st.form_submit_button("Don't have an account? Register")
         if login_button:
             if not is_valid_username(username):
-                st.error("Enter a valid username!")
+                st.error("Enter a valid username!!")
             else:
                 if authenticate_user(username, password):
                     st.session_state.logged_in = True

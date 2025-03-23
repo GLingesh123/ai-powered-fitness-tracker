@@ -4,4 +4,4 @@ pandas
 matplotlib
 seaborn
 scikit-learn
-mysql-connector-python1
+mysql-connector-python

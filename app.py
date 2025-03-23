@@ -8,7 +8,7 @@ from datetime import datetime
 from sklearn.ensemble import RandomForestRegressor
 
 DB_FILE = "fitness_data.db"
-DATASET_FILE = "activity_data_heartrate.csv"
+DATASET_FILE = "activity_data.csv"
 
 def is_valid_username(username):
     if not username:
